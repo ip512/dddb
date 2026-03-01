@@ -75,7 +75,7 @@ class ImportEOsModelCommand extends Command
         if ($this->isCodeNameBlocked($eOsModel->codename)) {
             $this->io->warning('codename excluded');
 
-            return Command::INVALID;
+            return Command::SUCCESS;
         }
 
         // Check if version is supported
