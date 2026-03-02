@@ -85,7 +85,7 @@ class ImportLineageModelCommand extends Command
         if ($this->isCodeNameBlocked($lineageModel->codename)) {
             $this->io->warning('codename excluded');
 
-            return Command::INVALID;
+            return Command::SUCCESS;
         }
 
         $existingManufacturerUuid = $this->manufacturerRepository->findUuidByName($lineageModel->vendor);
@@ -106,9 +106,11 @@ class ImportLineageModelCommand extends Command
             $manufacturerUuid = $existingManufacturerUuid;
         }
 
-        $existingSerieUuid = $this->serieRepository->findUuidByName($manufacturerUuid, $lineageModel->name);
+        $serieName = $this->getNameAlias($lineageModel->name);
+
+        $existingSerieUuid = $this->serieRepository->findUuidByName($manufacturerUuid, $serieName);
         if ($existingSerieUuid === null) {
-            $question = \sprintf('"%s" serie not found, do you want to create it?', $lineageModel->name);
+            $question = \sprintf('"%s" serie not found, do you want to create it?', $serieName);
             $response = $this->io->askQuestion(new ConfirmationQuestion($question));
             if ($response === false) {
                 $this->io->warning('Model not imported');
@@ -118,7 +120,7 @@ class ImportLineageModelCommand extends Command
 
             $manufacturerReference = $this->entityManager->getReference(Manufacturer::class, $manufacturerUuid);
             /** @var Serie $serie */
-            $serie = ($this->createSerie)(new CreateSerieCommand($lineageModel->name, $manufacturerReference));
+            $serie = ($this->createSerie)(new CreateSerieCommand($serieName, $manufacturerReference));
             $serieUuid = $serie->getUuid();
             $this->io->info("Serie {$serie->getName()} created");
         } else {
@@ -130,7 +132,7 @@ class ImportLineageModelCommand extends Command
         $modelReferences = empty($lineageModel->models) ? [null] : $lineageModel->models;
         foreach ($modelReferences as $modelReference) {
             $this->io->info(
-                "{$lineageModel->vendor} {$lineageModel->name} {$modelReference} [{$lineageModel->codename}-{$lineageModel->variant}] " .
+                "{$lineageModel->vendor} {$serieName} {$modelReference} [{$lineageModel->codename}-{$lineageModel->variant}] " .
                 " lineage currentBranch: {$mainVersion}",
             );
 
@@ -141,7 +143,7 @@ class ImportLineageModelCommand extends Command
             }
             if (\is_null($existingModel)) {
                 $this->createModel($serieUuid, $modelReference, $lineageModel->codename, $lineageModel->variant, $mainVersion);
-                $this->io->info("Model {$lineageModel->name} {$modelReference} has been imported.");
+                $this->io->info("Model {$serieName} {$modelReference} has been imported.");
             } elseif ($this->mainModel === null) {
                 $attributes = $this->attributeRepository->getModelAttributes($existingModel);
                 $this->checkLatestLineageVersion($existingModel, $attributes, $mainVersion);
@@ -243,5 +245,16 @@ class ImportLineageModelCommand extends Command
             'quill_tab',
             's3ve3gxx',
         ]);
+    }
+
+    private function getNameAlias(string $sourceName): string
+    {
+        return match ($sourceName) {
+            'moto g9' => 'moto g9 play',
+            'G8X ThinQ (Global)' => 'G8X ThinQ (G850EM/EMW)',
+            'G8X ThinQ (North America)' => 'G8X ThinQ (G850QM/UM)',
+            'Galaxy S20 FE (Snapdragon)' => 'Galaxy S20 FE',
+            default => $sourceName,
+        };
     }
 }

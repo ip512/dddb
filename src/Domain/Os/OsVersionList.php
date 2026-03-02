@@ -28,6 +28,7 @@ class OsVersionList implements \Iterator
         $postMarketOs = new Os(self::POST_MARKET_OS, 'postmarketOS');
 
         $this->list = [
+            new Version(27, '23', $lineage),
             new Version(22, '22', $lineage),
             new Version(21, '21', $lineage),
             new Version(1, '20', $lineage),
