@@ -29,5 +29,9 @@
         "watch": "encore dev --watch",
         "build": "encore production --progress",
         "prepare": "husky install"
+    },
+    "overrides": {
+        "serialize-javascript": ">=7.0.3",
+        "css-minimizer-webpack-plugin": ">=7.0.5"
     }
 }
