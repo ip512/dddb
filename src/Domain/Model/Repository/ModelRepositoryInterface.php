@@ -27,7 +27,7 @@ interface ModelRepositoryInterface
 
     public function findModelByAndroidCodeName(string $serieUuid, string $codeName, ?int $variant = null): ?Model;
 
-    /** return Paginator<Model> */
+    /** @return Paginator<Model> */
     public function findPaginatedModels(Serie $serie, int $page, int $pageSize): Paginator;
 
     /** @return ModelHeader[] */

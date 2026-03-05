@@ -12,7 +12,7 @@ use App\Domain\Model\Model;
 use App\Domain\Model\Repository\ModelRepositoryInterface;
 use App\Domain\Model\Serie;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
-use Doctrine\Common\Collections\Criteria;
+use Doctrine\Common\Collections\Order;
 use Doctrine\ORM\Tools\Pagination\Paginator;
 use Doctrine\Persistence\ManagerRegistry;
 
@@ -126,18 +126,16 @@ final class ModelRepository extends ServiceEntityRepository implements ModelRepo
         ;
     }
 
-    /** @return Paginator<Model> */
     public function findPaginatedModels(Serie $serie, int $page, int $pageSize): Paginator
     {
         $query = $this->createQueryBuilder('m')
             ->andWhere('m.serie = :serie')->setParameter('serie', $serie)
-            ->orderBy('m.reference', Criteria::ASC)
+            ->orderBy('m.reference', Order::Ascending->value)
             ->setFirstResult($pageSize * ($page - 1)) // set the offset
             ->setMaxResults($pageSize)
             ->getQuery()
         ;
 
-        /** @var Paginator<Model> $paginator */
         $paginator = new Paginator($query);
 
         return $paginator;
@@ -152,7 +150,7 @@ final class ModelRepository extends ServiceEntityRepository implements ModelRepo
             )
             ->andWhere('m.serie = :serie')
             ->setParameter('serie', $serie)
-            ->orderBy('m.reference', Criteria::ASC)
+            ->orderBy('m.reference', Order::Ascending->value)
             ->getQuery()
             ->getResult()
         ;
@@ -164,7 +162,7 @@ final class ModelRepository extends ServiceEntityRepository implements ModelRepo
             ->select(['m', 's', 'manufacturer'])
             ->join('m.serie', 's')
             ->join('s.manufacturer', 'manufacturer')
-            ->orderBy('m.reference', Criteria::ASC)
+            ->orderBy('m.reference', Order::Ascending->value)
             ->getQuery()
             ->toIterable()
         ;
@@ -183,12 +181,13 @@ final class ModelRepository extends ServiceEntityRepository implements ModelRepo
         }
     }
 
+    /** @return iterable<array{uuid: string, attributes: mixed}> */
     public function findAllAttributesIterable(): iterable
     {
         return $this->createQueryBuilder('m')
             ->select(['m.uuid', 'm.attributes'])
-            ->orderBy('m.reference', Criteria::ASC)
-            ->addOrderBy('m.androidCodeName', Criteria::ASC)
+            ->orderBy('m.reference', Order::Ascending->value)
+            ->addOrderBy('m.androidCodeName', Order::Ascending->value)
             ->getQuery()
             ->toIterable()
         ;

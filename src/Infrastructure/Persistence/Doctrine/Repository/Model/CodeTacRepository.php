@@ -8,7 +8,7 @@ use App\Domain\Model\CodeTac;
 use App\Domain\Model\Model;
 use App\Domain\Model\Repository\CodeTacRepositoryInterface;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
-use Doctrine\Common\Collections\Criteria;
+use Doctrine\Common\Collections\Order;
 use Doctrine\Persistence\ManagerRegistry;
 
 final class CodeTacRepository extends ServiceEntityRepository implements CodeTacRepositoryInterface
@@ -36,12 +36,12 @@ final class CodeTacRepository extends ServiceEntityRepository implements CodeTac
         return $this->count(['code' => $code]) > 0;
     }
 
-    public function findCodeTacs(Model $model): iterable
+    public function findCodeTacs(Model $model): array
     {
         $queryBuilder = $this->createQueryBuilder('ct');
         $queryBuilder->select('ct.code')
             ->andWhere('ct.model = :model')->setParameter('model', $model)
-            ->addOrderBy('ct.code', Criteria::ASC)
+            ->addOrderBy('ct.code', Order::Ascending->value)
         ;
 
         return $queryBuilder->getQuery()->getSingleColumnResult();
