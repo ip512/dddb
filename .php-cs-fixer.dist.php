@@ -7,6 +7,7 @@ $finder = (new PhpCsFixer\Finder())
         __DIR__ . '/config',
         __DIR__ . '/src',
     ])
+    ->notPath('reference.php')
 ;
 
 return (new PhpCsFixer\Config())

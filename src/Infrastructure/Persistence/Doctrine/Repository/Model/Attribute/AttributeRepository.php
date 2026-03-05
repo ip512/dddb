@@ -58,6 +58,9 @@ class AttributeRepository implements AttributeRepositoryInterface
         $this->modelRepository->update($model);
     }
 
+    /**
+     * @return iterable<AttributeFlatView>
+     */
     public function findAllAttributes(): iterable
     {
         $models = $this->modelRepository->findAllAttributesIterable();
