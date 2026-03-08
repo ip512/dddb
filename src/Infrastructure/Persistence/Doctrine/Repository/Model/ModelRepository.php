@@ -63,6 +63,8 @@ final class ModelRepository extends ServiceEntityRepository implements ModelRepo
         ;
         if ($variant !== null) {
             $builder->andWhere('m.variant = :variant')->setParameter('variant', $variant);
+        } else {
+            $builder->andWhere('m.variant IN (0, 1)');
         }
 
         return $builder->getQuery()->getOneOrNullResult();

@@ -216,7 +216,7 @@ class ImportLineageModelCommand extends Command
 
             return;
         }
-        if ($currentVersion !== null && $currentVersion->osVersion->getName() !== $upToDateVersion) {
+        if ($currentVersion->osVersion->getName() !== $upToDateVersion) {
             $this->io->info(
                 "{$model->getSerie()} {$model->getReference()} {$model->getAndroidCodeName()} [{$model->getVariant()}] " .
                 "Upgrade Lineage version from {$currentVersion->osVersion->getName()} to {$upToDateVersion}",

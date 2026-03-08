@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Command;
 
-use Symfony\Component\Serializer\Annotation\Context;
-use Symfony\Component\Serializer\Annotation\SerializedName;
+use Symfony\Component\Serializer\Attribute\Context;
+use Symfony\Component\Serializer\Attribute\SerializedName;
 use Symfony\Component\Serializer\Normalizer\ObjectNormalizer;
 
 class LineageModel
