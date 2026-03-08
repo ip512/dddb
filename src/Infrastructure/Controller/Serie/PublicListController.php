@@ -38,7 +38,7 @@ final class PublicListController
     /**
      * @param array<SerieHeader> $series
      *
-     * @return array<int, array<string, array<SerieHeader>>>
+     * @return array<int,array{manufacturer:string,series:array<SerieHeader>}>
      */
     private function aggregateByManufacturer(array $series): array
     {

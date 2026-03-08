@@ -9,9 +9,13 @@ use App\Application\Manufacturer\Command\CreateManufacturerCommand;
 use App\Application\Model\Command\CreateModelCommand;
 use App\Application\Serie\Command\CreateSerieCommand;
 use App\Application\SupportedOsList\Command\AddSupportedOsCommand;
+use App\Application\SupportedOsList\Command\AddSupportedOsCommandHandler;
+use App\Application\SupportedOsList\Command\DeleteSupportedOsCommand;
+use App\Application\SupportedOsList\Command\DeleteSupportedOsCommandHandler;
 use App\Domain\Manufacturer\Repository\ManufacturerRepositoryInterface;
 use App\Domain\Model\Attribute\AttributeCollection;
 use App\Domain\Model\Attribute\AttributeRepositoryInterface;
+use App\Domain\Model\Attribute\SupportedOs;
 use App\Domain\Model\Attribute\SupportedOsList;
 use App\Domain\Model\Manufacturer;
 use App\Domain\Model\Model;
@@ -47,6 +51,8 @@ class ImportEOsModelCommand extends Command
         private readonly AttributeRepositoryInterface $attributeRepository,
         private readonly CommandBusInterface $commandBus,
         private readonly SerializerInterface $serializer,
+        private readonly AddSupportedOsCommandHandler $addSupportedOs,
+        private readonly DeleteSupportedOsCommandHandler $deleteSupportedOs,
     ) {
         parent::__construct();
     }
@@ -69,18 +75,25 @@ class ImportEOsModelCommand extends Command
             return Command::FAILURE;
         }
 
+        $yamlString = $this->fixYaml($filename);
         /** @var EOsModel $eOsModel */
-        $eOsModel = $this->serializer->deserialize(file_get_contents($filename), EOsModel::class, YamlEncoder::FORMAT);
-
+        $eOsModel = $this->serializer->deserialize(
+            $yamlString,
+            EOsModel::class,
+            YamlEncoder::FORMAT,
+        );
         if ($this->isCodeNameBlocked($eOsModel->codename)) {
             $this->io->warning('codename excluded');
 
             return Command::SUCCESS;
         }
+        if (isset(self::MAP_MODELS[$eOsModel->codename])) {
+            $eOsModel->models = self::MAP_MODELS[$eOsModel->codename];
+        }
 
         // Check if version is supported
         $osList = new OsVersionList();
-        $osList->getEOsVersion($eOsModel->buildVersionDev);
+        $osList->getEOsVersion($eOsModel->buildVersionDev ?: $eOsModel->buildVersionStable);
 
         $existingManufacturerUuid = $this->manufacturerRepository->findUuidByName($eOsModel->vendor);
         if ($existingManufacturerUuid === null) {
@@ -101,6 +114,11 @@ class ImportEOsModelCommand extends Command
         }
 
         $serieName = self::MAP_SERIE_NAME[strtolower($eOsModel->codename)] ?? $eOsModel->name;
+        if ($serieName === 'IGNORE') {
+            $this->io->warning('Codename ignored');
+
+            return Command::SUCCESS;
+        }
         $existingSerieUuid = $this->serieRepository->findUuidByName($manufacturerUuid, $serieName);
 
         if ($existingSerieUuid === null) {
@@ -121,7 +139,7 @@ class ImportEOsModelCommand extends Command
             $serieUuid = $existingSerieUuid;
         }
 
-        $modelReferences = $eOsModel->getModels();
+        $modelReferences = $eOsModel->models;
         if (empty($modelReferences)) {
             $modelReferences = [null];
         }
@@ -136,63 +154,100 @@ class ImportEOsModelCommand extends Command
             } else {
                 $existingModel = $this->modelRepository->findModelByReference($serieUuid, $modelReference);
             }
+
             if (\is_null($existingModel)) {
                 $this->createModel($serieUuid, $modelReference, $eOsModel->codename, $eOsModel->buildVersionDev, $eOsModel->buildVersionStable);
                 $this->io->info("Model {$serieName} {$modelReference} has been imported.");
             } elseif ($this->mainModel === null) {
                 $attributes = $this->attributeRepository->getModelAttributes($existingModel);
-                if (!$this->hasEOsVersion($attributes)) {
-                    $this->addVersions($existingModel, $eOsModel->codename, $eOsModel->buildVersionDev, $eOsModel->buildVersionStable);
-                }
+
+                $this->checkLatestEOsVersion($existingModel, $attributes, $eOsModel->buildVersionDev ?: $eOsModel->buildVersionStable);
+
                 $this->mainModel = $existingModel;
             }
         }
 
+        $this->entityManager->flush();
+
         return Command::SUCCESS;
     }
 
-    private function hasEOsVersion(AttributeCollection $attributes): bool
-    {
-        if (!$attributes->has(SupportedOsList::NAME)) {
-            return false;
-        }
-        /** @var SupportedOsList $osList */
-        $osList = $attributes->get(SupportedOsList::NAME);
-
-        return $osList->hasEOs();
+    private function addEOsSupportedAttributeToModel(
+        Model $model,
+        string $latestEOsVersion,
+        string $codeName,
+        ?string $comment = null,
+    ): void {
+        $osList = new OsVersionList();
+        $osVersion = $osList->getEOsVersion($latestEOsVersion);
+        $baseURl = 'https://doc.e.foundation/devices/';
+        ($this->addSupportedOs)(new AddSupportedOsCommand(
+            $model,
+            $osVersion,
+            $baseURl . $codeName,
+            $comment,
+        ));
     }
 
-    private function addVersions(Model $model, string $codeName, string $latestEOsVersion, ?string $stableEOsVersion): void
+    private function checkLatestEOsVersion(Model $model, AttributeCollection $attributes, string $latestEOsVersion): void
     {
-        $baseURl = 'https://doc.e.foundation/devices/';
-        $osList = new OsVersionList();
-        $latestOsVersion = $osList->getEOsVersion($latestEOsVersion);
+        if (!$attributes->has(SupportedOsList::NAME)) {
+            return;
+        }
 
-        if ($stableEOsVersion) {
-            $stableOsVersion = $osList->getEOsVersion($stableEOsVersion);
-            $this->commandBus->handle(new AddSupportedOsCommand(
-                $model,
-                $stableOsVersion,
-                $baseURl . $codeName,
-                'Stable version',
-            ));
-            if ($stableEOsVersion === $latestEOsVersion) {
-                return;
+        $osList = $attributes->get(SupportedOsList::NAME);
+        /** @var ?SupportedOs $currentVersion */
+        $currentVersion = null;
+        $otherOses = [];
+        /** @var SupportedOs $supportedOs */
+        foreach ($osList->getValue() as $supportedOs) {
+            if ($supportedOs->osVersion->getOs()->getId() !== OsVersionList::E_OS) {
+                $otherOses[] = $supportedOs;
+                continue;
+            }
+            if ($currentVersion === null || (int) $supportedOs->osVersion->getName() > (int) $currentVersion->osVersion->getName()) {
+                $currentVersion = $supportedOs;
             }
         }
 
-        $this->commandBus->handle(new AddSupportedOsCommand(
-            $model,
-            $latestOsVersion,
-            $baseURl . $codeName,
-        ));
+        if ($currentVersion === null) {
+            $this->io->warning(
+                "No /e/OS version found for {$model->getSerie()->getName()} " .
+                "{$model->getReference()} {$model->getAndroidCodeName()}",
+            );
+            $this->addEOsSupportedAttributeToModel(
+                $model,
+                $latestEOsVersion,
+                $model->getAndroidCodeName(),
+            );
+
+            return;
+        }
+
+        if ($currentVersion->osVersion->getName() !== $latestEOsVersion) {
+            $this->io->info(
+                "{$model->getSerie()} {$model->getReference()} {$model->getAndroidCodeName()} " .
+                "Upgrade /e/OS version from {$currentVersion->osVersion->getName()} to {$latestEOsVersion}",
+            );
+            $comment = $currentVersion->comment && $currentVersion->comment !== 'Stable version';
+            if ($comment) {
+                $this->io->info("There is a comment: {$currentVersion->comment}");
+            }
+            ($this->deleteSupportedOs)(new DeleteSupportedOsCommand($model, $currentVersion->id));
+            $this->addEOsSupportedAttributeToModel(
+                $model,
+                $latestEOsVersion,
+                $model->getAndroidCodeName(),
+                $currentVersion->comment,
+            );
+        }
     }
 
     private function createModel(
         string $serieUuid,
         ?string $reference,
         string $codeName,
-        string $latestEOsVersion,
+        ?string $latestEOsVersion,
         ?string $stableVersion,
     ): void {
         $serie = $this->entityManager->getReference(Serie::class, $serieUuid);
@@ -200,11 +255,11 @@ class ImportEOsModelCommand extends Command
         $model = $this->commandBus->handle(new CreateModelCommand($serie, $reference, $codeName, parentModel: $this->mainModel));
         if ($this->mainModel === null) {
             $this->mainModel = $model;
-            $this->addVersions($model, $codeName, $latestEOsVersion, $stableVersion);
+            $this->addEOsSupportedAttributeToModel($model, $latestEOsVersion ?: $stableVersion, $codeName);
         }
     }
 
-    private const MAP_SERIE_NAME = [
+    private const array MAP_SERIE_NAME = [
         'fp2' => '2',
         'fp3' => '3',
         'fp4' => '4',
@@ -216,6 +271,7 @@ class ImportEOsModelCommand extends Command
         'apollon' => 'Mi 10T',
         'cancro' => 'Mi 3',
         'chef' => 'one power',
+        'emerald' => 'IGNORE',
         'davinci' => 'Mi 9T',
         'gauguin' => 'Mi 10T Lite',
         'ginkgo' => 'Redmi Note 8',
@@ -238,6 +294,7 @@ class ImportEOsModelCommand extends Command
         'oneplus3' => '3',
         'osprey' => 'moto g (2015)',
         'r5' => 'R5 (International)',
+        'sapphire' => 'IGNORE',
         'surnia' => 'moto e LTE (2015)',
         'titan' => 'moto g (2014)',
         'taimen' => 'Pixel 2 XL',
@@ -247,10 +304,88 @@ class ImportEOsModelCommand extends Command
         'zl1' => 'Le Pro3',
     ];
 
+    private const array MAP_MODELS = [
+        'guacamole' => ['GM1910'],
+        'zirconia' => [],
+    ];
+
     private function isCodeNameBlocked(string $codename): bool
     {
         return \in_array($codename, [
             's3ve3gxx',
         ]);
+    }
+
+    private function fixYaml(string $filePath): string
+    {
+        $yaml = file_get_contents($filePath);
+
+        $allowed = [
+            'vendor',
+            'name',
+            'models',
+            'codename',
+            'build_version_dev',
+            'build_version_stable',
+        ];
+
+        $lines = preg_split('/\r?\n/', $yaml);
+
+        $result = [];
+        $collectModels = false;
+
+        foreach ($lines as $line) {
+            // détecte une propriété YAML simple
+            if (preg_match('/^([a-zA-z_\-]+\s*):\s*(.*)$/', $line, $matches)) {
+                $key = trim($matches[1]);
+                $value = $matches[2];
+                if (empty($value)) {
+                    continue;
+                }
+
+                if (!\in_array($key, $allowed, true)) {
+                    $collectModels = false;
+                    continue;
+                }
+
+                if ($key === 'models') {
+                    $result['models'] = ["models: $value"];
+                    $collectModels = true;
+
+                    continue;
+                }
+
+                $result[$key] = ["$key: $value"];
+                $collectModels = false;
+
+                continue;
+            }
+
+            // collecte les lignes de liste sous models
+            if ($collectModels) {
+                if (preg_match('/^\s*-\s*(.*)$/', $line)) {
+                    $result['models'][] = $line;
+                    continue;
+                }
+
+                // stop si on atteint une autre propriété
+                if (preg_match('/^[a-zA-Z0-9_]+:/', $line)) {
+                    $collectModels = false;
+                }
+            }
+        }
+
+        // reconstruction YAML
+        $out = [];
+
+        foreach ($allowed as $key) {
+            if (isset($result[$key])) {
+                foreach ($result[$key] as $l) {
+                    $out[] = $l;
+                }
+            }
+        }
+
+        return implode("\n", $out) . "\n";
     }
 }

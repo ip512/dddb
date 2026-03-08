@@ -4,9 +4,8 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Command;
 
-use Symfony\Component\Serializer\Annotation\Context;
-use Symfony\Component\Serializer\Annotation\Ignore;
-use Symfony\Component\Serializer\Annotation\SerializedName;
+use Symfony\Component\Serializer\Attribute\Context;
+use Symfony\Component\Serializer\Attribute\SerializedName;
 use Symfony\Component\Serializer\Normalizer\ObjectNormalizer;
 
 class EOsModel
@@ -15,16 +14,15 @@ class EOsModel
     #[Context(denormalizationContext: [ObjectNormalizer::DISABLE_TYPE_ENFORCEMENT => true])]
     public string $name;
     /** @internal use getModels() method */
-    public array|string $models = [];
+    public string|array $models = [] {
+        get => \is_string($this->models) ? [$this->models] : $this->models;
+        set(array|string $value) {
+            $this->models = \is_string($value) ? [$value] : $value;
+        }
+    }
     public string $codename;
     #[SerializedName('build_version_dev')]
-    public string $buildVersionDev;
+    public ?string $buildVersionDev = null;
     #[SerializedName('build_version_stable')]
     public ?string $buildVersionStable = null;
-
-    #[Ignore()]
-    public function getModels(): array
-    {
-        return \is_string($this->models) ? [$this->models] : $this->models;
-    }
 }
