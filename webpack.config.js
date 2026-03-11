@@ -16,7 +16,7 @@ Encore
 
   .copyFiles({
     from: './assets/favicon',
-    to: 'favicon/[path][name].[hash:8s].[ext]'
+    to: 'favicon/[path][name].[contenthash:8].[ext]'
   })
 
   /*

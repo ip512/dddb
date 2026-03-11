@@ -8,6 +8,7 @@ use App\Application\Model\Query\ListSerieModelsQuery;
 use App\Application\Model\Query\ModelQuery;
 use App\Application\Model\View\ModelHeader;
 use App\Application\QueryBusInterface;
+use App\Domain\Model\Exception\ModelNotFoundException;
 use App\Domain\Model\Serie;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Annotation\Route;
@@ -31,7 +32,11 @@ final class PublicViewController
             $modelUuid = $modelHeaders[0]->uuid;
             $isDefaultModel = true;
         }
-        $model = $this->queryBus->handle(new ModelQuery($modelUuid));
+        try {
+            $model = $this->queryBus->handle(new ModelQuery($modelUuid));
+        } catch (ModelNotFoundException $e) {
+            return new Response($e->getMessage(), Response::HTTP_NOT_FOUND);
+        }
 
         return new Response(
             content: $this->twig->render(
